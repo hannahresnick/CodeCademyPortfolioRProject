@@ -1,0 +1,147 @@
+---
+title: "Gonzaga Basketball Trends - Codecademy R Final Project"
+output: html_notebook
+---
+
+### Introduction:
+
+In this project, I aim to analyze Google Trend data for Gonzaga Men's Basketball, using the keywords "Gonzaga Basketball", "Gonzaga Bulldogs", "Zags", and "Spokane" to see how these trends change over time and location, especially in relation to the NCAA Men's Basketball Tournament. I will then import another dataset to see how the Zags' ranking in different years relates to the search terms.
+
+
+### Analysis:
+
+First, install libraries.
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+library(gtrendsR)
+library(stringr)
+library(ggspectra)
+```
+
+Next, load datasets. 
+
+Create the trends dataset with gtrendsR - setting the keywords as "Gonzaga Basketball", "Gonzaga Bulldogs", "Zags", and "Spokane", while limiting results to the US and keeping the dates between 2013 and 2019, to fit with our second dataset.
+
+The cbb dataset (Kaggle) includes data from 2013-2019 for the NCAA Men's Basketball Tournament.
+
+```{r}
+zag_trends <- gtrends(keyword = c("Gonzaga Basketball", "Gonzaga Bulldogs", "Zags", "Spokane"), time = "2013-01-01 2019-12-31", geo = "US")
+
+cbb <- read.csv("cbb.csv")
+```
+
+The Google Trends data gave us multiple new data frames - Let's look at them and rename them for easier access.
+We will be using the interest over time, interest by region, and interest by dma (designated market area) trend dataframes.
+
+```{r}
+interest_over_time <- zag_trends$interest_over_time %>% mutate(hits = gsub("<1", "0", hits)) %>% mutate(hits=as.numeric(hits)) %>% mutate(year = str_sub(date, 1, 4)) %>% mutate(month = str_sub(date,6, 7))
+head(interest_over_time)
+
+interest_states <- zag_trends$interest_by_region %>% mutate(hits = gsub("<1", "0", hits)) %>% mutate(hits=as.numeric(hits))
+head(interest_states)
+
+interest_dma <- zag_trends$interest_by_dma %>% mutate(hits = gsub("<1", "0", hits)) %>% mutate(hits=as.numeric(hits))
+head(interest_dma)
+```
+
+
+Now we want to filter our cbb dataset to only include Gonzaga, and rename some columns to make them easier to understand, while removing columns we won't be looking at as much. Luckily, Gonzaga has made the tournament every year for the past 20 or so years, so we have data for them every year! 
+Note: Power Rating = Chance of beating an average D1 team. 
+
+```{r}
+zags_cbb <- cbb %>% filter(TEAM == "Gonzaga") %>% select(YEAR, SEED, POSTSEASON, W, G, BARTHAG) %>% rename(GAMES = G, WINS = W, POWER_RATING = BARTHAG) %>% arrange(YEAR)
+zags_cbb
+```
+Adding a win percentage column to the Zags CBB dataset.
+```{r}
+zags_cbb <- zags_cbb %>% mutate(WIN_PCT = WINS/GAMES)
+zags_cbb
+```
+
+Google Trend Data
+
+Let's look more into the Google trends data!
+First, let's see what our trends look like over time - what is the most popular search term when looking up information on Google about the Zags?
+```{r}
+interest_over_time %>% ggplot(aes(x=as.Date(date), y=hits, color=keyword)) + geom_line() + labs(title = "Google Search Terms over Time", x = "Year", y = "Hits") + scale_fill_discrete(name="Keyword") + scale_x_date(date_breaks ="1 year", date_labels="%Y")
+```
+Because there is more going on in Spokane than just basketball, our Spokane search trend has many more hits! However, we can see that "Gonzaga Basketball" seemes to be the most popular search term related to the team. There are also some peaks in the Gonzaga data once a year. Could this be happening in March and April during the tournament? And does the Spokane data line up with that?
+
+
+```{r}
+spo_graph <- interest_over_time %>% filter(keyword == "Spokane") %>% ggplot(aes(x=as.Date(date), y=hits, color=keyword)) + geom_line() + labs(title = "Google Search Terms over Time - 'Spokane'", x = "Year", y = "Hits") + stat_label_peaks(span=5, x.label.fmt= month.name, color="blue") + scale_x_date(date_breaks ="1 year", date_labels="%Y")
+spo_graph
+
+bball_graph <- interest_over_time %>% filter(keyword == "Gonzaga Basketball") %>% ggplot(aes(x=as.Date(date), y=hits, color=keyword)) + geom_line() + labs(title = "Google Search Terms over Time - 'Gonzaga Basketball'", x = "Year", y = "Hits") + stat_label_peaks(span=5, x.label.fmt= month.name, color="blue") + scale_x_date(date_breaks ="1 year", date_labels="%Y")
+
+bball_graph
+```
+Here, we are able to see that for the search term "Spokane", the peaks are ususally in the summer - closer to when school is about to be back in session at Gonzaga. On the other hand, we can clearly see that people are Googling "Gonzaga Basketball" MUCH more in March, right when March Madness is happening!
+
+
+Now let's take a look at how these search terms divide up throughout the country. We expect most to be in Washington and the Pacific Northwest, where the school is located.
+
+
+```{r}
+library(maps)
+states <- map_data("state")
+
+interest_states <- interest_states %>% mutate(location = tolower(location))
+
+map_plot <- ggplot(interest_states, aes(map_id=location)) + geom_map(aes(fill=hits), map=states) + expand_limits(x=states$long, y=states$lat) + facet_wrap(~keyword) + labs(title="Google Trend Data for Search Terms - US Map", x="Latitude", y="Longitude") + scale_fill_continuous(name="Hits")
+map_plot
+
+```
+
+These search terms are clearly the most popular in the Pacific Northwest, especially Washington, where Gonzaga is located.
+
+If we look at DMA (Designated Market Area), we can see in which main cities these terms are popular. Let's look at a bar graph of where these keywords had more than 5 hits.
+
+```{r}
+interest_dma %>% filter(hits>5) %>% ggplot(aes(reorder(location, hits), hits, fill=keyword)) + geom_col(position="dodge") + theme(axis.text.x = element_text(angle = 25,hjust=1)) + labs(title="Google Search Trends in DMA(Designated Market Areas)", x="DMA", y="Hits") + scale_fill_discrete(name="Keyword")
+```
+Most of these seem to be in the Pacific Northwest and areas surrounding Spokane, especially Montana, but surprisingly people are searching for the Zags in Pennsylvania!
+
+CBB Data - Gonzaga
+
+Going back to our imported dataset on the NCAA Basketball Tournament, let's see how some of these variables affect each other.
+
+
+```{r}
+zags_cbb %>% ggplot(aes(YEAR, SEED)) + geom_line() + scale_x_continuous(breaks=c(2013, 2014, 2015, 2016, 2017, 2018, 2019)) + scale_y_reverse(breaks=c(1, 3, 5, 7, 9, 11)) + labs(title = "Gonzaga Men's Basketball - NCAA Tournament Seed History", x= "Year", y="Seed")
+```
+It looks like the Zags have had lots of highs and lows in their tournament seeding, but out of these 7 years, they had a top 5 seed for 5 years, which is pretty impressive!
+
+Now let's take a look at how far the Zags tend to get in the tournament.
+
+```{r}
+zags_cbb %>% ggplot(aes(POSTSEASON)) + geom_bar(fill="navy blue") + labs(title="Gonzaga Basketball NCAA Tournament Results", x="Postseason Result", y="Number of Occurrences") + scale_x_discrete(limits=c("R32", "S16", "E8", "2ND"), labels=c("2ND" ="Runner-Up", "E8" = "Elite 8", "S16" = "Sweet 16", "R32" = "Round of 32"))
+```
+Looks like a pretty varied spread for the tournament results! Interesting to note that there is no Round of 64 results - the Zags have always won at least 1 game from 2013-2019, and no Final 4 result - the team DID make the Final 4 but won, which is why they got the runner-up position for that one year. Otherwise, there seems to be no clear trend - once the Gonzaga Basketball team makes the tournament, any result is possible!
+
+Combining the datasets
+
+Finally, let's take a look at how the cbb data and Google trends data combine. We can take a look at the seed that Gonzaga is in the tournament and see if the spikes in Google trends for "Gonzaga Basketball" correlate with a higher seed (lower number). For the purposes of seeing how the Tournament lines up with the graph, we are setting the date of seeding to be March 1st.
+
+```{r}
+bball_over_time <- interest_over_time %>% filter(keyword == "Gonzaga Basketball") %>% filter(date < '2019-03-01')
+zags_cbb <- zags_cbb %>% mutate(YR2 = as.Date(ISOdate(YEAR, 03, 01)))
+
+
+ggplot() + geom_line(bball_over_time, mapping=aes(as.Date(date), hits, color="Gonzaga Basketball")) + geom_line(zags_cbb, mapping=aes(YR2, -(SEED*2)+24, color="NCAA Tournament Seed")) + labs(title = "Google Trends 'Gonzaga Basketball' and NCAA Tournament Seed History", x= "Year") + scale_y_continuous(name="Hits", sec.axis = sec_axis(~rev(.)/2, name="Seed",breaks= seq(1, 12, by = 2))) + scale_x_date(date_breaks="1 year", date_labels = "%Y") + theme(legend.title=element_blank())
+
+ggsave("trends_seed.png")
+```
+While we already knew that searches for "Gonzaga Basketball" peak in March during the NCAA Tournament, we do see some of the highest search peaks during 2017 and 2019, when Gonzaga was a #1 seed going into the tournament. Searches were still high in 2016 when the Zags only had an 11 seed, but before 2015, there really wasn't as much interest in Gonzaga Basketball as a search trend, even in 2013 when they were a 1 seed. We can see that regardless of seed, people search for the team more during the tournament time, but searches are a lot higher if the seed is higher!
+
+### Conclusion & Further Work:
+
+A lot of this data confirmed what I had assumed - people search more about Gonzaga Men's Basketball team during the NCAA Tournament, and a lot of those searches are in Washington and the Pacific Northwest, where the school is located. However, I was interested to see that "Gonzaga Bastketball" was the higher trending term than "Zags", which is how alumni commonly refer to their team. 
+
+We also see the search trends spike around March regardless of tournament seed, but if the team is a #1 seed, the search tends to get more hits.
+
+I do think there could have been more impactful results if we had data for the Tournament going a little further back and including 2021, where the team also became the runner-up in the Championship, so we could see more trends over a longer period of time. I did try to run a regression on seed and win percentage, because there looked to be a linear relationship between the two (negative, since higher seeds are lower numbers), but there were many errors with the model. I assume this is because there were only 7 datapoints, which is not much to create a model off of.
